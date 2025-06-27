@@ -1,0 +1,13 @@
+[package]
+name = "attestations"
+version = "0.1.0"
+edition = "2023_11"
+
+[dependencies]
+starknet = "2.6.3"
+
+[[target.starknet-contract]]
+
+[tool.snforge]
+# Directory containing Cairo source files
+src = "src"
