@@ -20,9 +20,7 @@ Decentralized applications often need to verify claims about users, contracts, o
 
 1. **Interoperability**: A common interface for all attestation types
 2. **Composability**: Attestations can reference and build upon other attestations
-3. **Privacy Options**: Support for both public and privacy-preserving attestations
-4. **Flexibility**: Extensible schema system for different attestation types
-5. **Trust Management**: Built-in verification and validity management
+3. **Privacy Options**: Due to its free schema system, privacy-preserving attestations are supported, in the same way as fully-fledged ones.
 
 ## Specification
 
@@ -83,21 +81,32 @@ The following field types MUST be supported:
 ```cairo
 #[derive(Drop, Serde, Clone, Copy)]
 pub enum FieldType {
+    ShortString,
     String,
-    Uint256,
+
     Uint64,
-    Address,
+    Uint128,
+    Uint256,
+
+    Int64,
+    Int128,
+    Int256,
+
+    ContractAddress,
     Bool,
     Bytes,
-    Hash,
     Enum,
     Struct,
 }
 ```
 
+The current specification explicitly doesn't specify the integer and unsigned below 64 to simplify the implementation of attestation systems at the moment.
+
+No automatic generation of the schema fields is currently supported, but implementors MAY automatically generate the schema fields from the struct definition in the contract.
+
 ### Enum and Struct Definitions
 
-For complex data structures, schemas can define enums and structs:
+For complex nested data structures, schemas can define enums and structs:
 
 ```cairo
 #[derive(Drop, Serde)]
@@ -132,9 +141,6 @@ pub struct Attestation<TData> {
     pub subject: ContractAddress,
     pub data: TData,
     pub created_at: u64,
-    pub revoked: bool,
-    pub revoked_at: Option<u64>,
-    pub external_ref: Option<ByteArray>,
 }
 ```
 
@@ -146,6 +152,13 @@ The `verify` function MUST implement the following checks:
 2. **Validity**: Attestation must not be marked as invalid/revoked
 
 Additional validation logic MAY be implemented through optional components (e.g., expiration checks, dependency verification, programmatic validity checks).
+
+If some additional validation logic is implement, the components MUST respect the following rules:
+
+1. **Decisiveness**: Once an attestation is refused through the `verify` function once, the implementor MUST always return false for that given attestation.
+
+
+The above requirements ensure the simplicity of the indexing systems, along with the on-chain users of the specification.
 
 ### Composability
 
@@ -161,7 +174,7 @@ Attestations can reference other attestations by ID and use the Starknet interfa
 #### Schema Enhancement and Combination
 Schemas can be enhanced and combined in various ways:
 
-- **Multi-Attestation Requirements**: An attestation that requires both a Discord verification AND an age verification to be valid
+- **Multi-Attestation Requirements**: For example, an attestation that requires both a Discord verification AND an age verification to be valid
 - **Layered Attestations**: A "Verified Developer" attestation that requires a GitHub attestation, educational credential attestation, and portfolio attestation
 - **Conditional Attestations**: Attestations that remain valid only while underlying conditions are met (e.g., membership status, asset ownership)
 
@@ -170,7 +183,7 @@ Multiple attestations can be combined to reach final verification outcomes:
 
 ```cairo
 // Example: Composite verification logic
-fn verify_composite(
+fn verify(
     self: @ContractState,
     attestation_id: felt252
 ) -> bool {
@@ -196,6 +209,15 @@ fn verify_composite(
 
 This composability is a core objective of the system, enabling complex trust relationships and verification chains.
 
+### Creating an Attestation
+
+While the specification doesn't put a hard requirement on the initial attestation (without any dependencies on other attestations), implementations that does take dependencies SHOULD follow the composability guidelines on attestation creation:
+
+- Have any specific parameters in first position
+- Take a `Vec<(ContractAddress, felt252)>` as the last parameter, containing the dependencies, as required by the contract. Implementors SHOULD allow for any ordering of the dependencies, unless there are specific requirements.
+
+> Reasoning: If not using a vec, especially with dynamic requirements, there are no easy way to differentiate between the requested attestation dependencies.
+
 ### Events
 
 Implementations MUST emit the `AttestationCreated` event:
@@ -209,135 +231,7 @@ pub struct AttestationCreated {
 }
 ```
 
-Additional events MAY be emitted for other state changes (e.g., revocation).
-
-### JSON Schema Export
-
-The `get_schema_json` function MUST return a valid JSON representation of the schema. This is mandatory to enable dynamic client configurations. The JSON MUST follow this structure:
-
-```json
-{
-  "name": "Schema Name",
-  "description": "Schema description",
-  "version": 1,
-  "fields": [
-    {
-      "name": "field_name",
-      "type": "FieldType",
-      "required": true,
-      "size": 0,
-      "description": "Field description"
-    }
-  ]
-}
-```
-
-#### Enhanced JSON Schema for Enums
-
-For enum fields, the JSON MUST include variant definitions:
-
-```json
-{
-  "name": "data",
-  "type": "Enum",
-  "required": true,
-  "size": 0,
-  "description": "Tagged union data",
-  "variants": [
-    {
-      "name": "VariantA",
-      "description": "First variant",
-      "fields": [
-        {
-          "name": "field1",
-          "type": "String",
-          "required": true
-        }
-      ]
-    },
-    {
-      "name": "VariantB",
-      "description": "Second variant",
-      "fields": [
-        {
-          "name": "field2",
-          "type": "Uint64",
-          "required": true
-        }
-      ]
-    }
-  ]
-}
-```
-
-#### Enhanced JSON Schema for Structs
-
-For struct fields, the JSON MUST include struct definitions:
-
-```json
-{
-  "name": "location",
-  "type": "Struct",
-  "required": true,
-  "size": 0,
-  "description": "Location data",
-  "struct": {
-    "name": "Point",
-    "description": "2D coordinate point",
-    "fields": [
-      {
-        "name": "x",
-        "type": "Uint64",
-        "required": true,
-        "description": "X coordinate"
-      },
-      {
-        "name": "y",
-        "type": "Uint64",
-        "required": true,
-        "description": "Y coordinate"
-      }
-    ]
-  }
-}
-```
-
-## Implementation Guidelines
-
-### Privacy Considerations
-
-Implementations MAY support privacy-preserving attestations by:
-
-1. Using hash-based proofs instead of raw data
-2. Implementing selective disclosure mechanisms
-3. Supporting zero-knowledge proof integration with tools like Noir or other ZK frameworks
-4. Providing privacy-preserving verification methods
-
-### Access Control
-
-Implementations SHOULD implement appropriate access control for:
-
-1. **Creation**: Who can create attestations
-2. **Revocation**: Who can mark attestations as invalid
-3. **Reading**: Whether attestation data is public or restricted
-
-### Gas Optimization
-
-Implementations SHOULD optimize for gas efficiency by:
-
-1. Using efficient storage patterns
-2. Minimizing external calls in verification
-3. Batching operations where possible
-4. Caching verification results when appropriate for composite attestations
-
-### Optional Components
-
-Implementations MAY include optional components for:
-
-1. **Expiration Management**: Time-based validity checks
-2. **Dependency Verification**: Automatic checking of prerequisite attestations
-3. **Audit Trails**: Enhanced logging and history tracking
-4. **Programmatic Validity**: Dynamic verification based on external state
+Additional events MAY be emitted for other state changes (e.g., revocation), but are implementation-specific.
 
 ## Rationale
 
@@ -376,22 +270,11 @@ This is a new standard with no backwards compatibility concerns.
 
 ### Replay Attacks
 
-Implementations SHOULD use unique attestation IDs to prevent replay attacks.
-
-### Data Integrity
-
-Attestation data MUST be immutable once created to maintain integrity. The only exception is the validity state, which can transition from valid to invalid in one direction only. Once an attestation is marked as invalid, it cannot be made valid again.
-
-This one-way validity transition provides:
-- **Consistency**: Clients and indexers can rely on state consistency
-- **Simplicity**: No complex state management required
-- **Trust**: Clear audit trails for validity changes
-
-If underlying conditions change (e.g., NFT ownership for programmatic validity), a new attestation must be created rather than reverting the invalid state.
+Implementations SHOULD prefer using hash-based verification to prevent replay attacks, and conflict resolution, but all users of the attestation system MUST allow for any ID assignment system.
 
 ### Access Control
 
-Proper access control MUST be implemented to prevent unauthorized attestations and revocations.
+Proper access control MUST be implemented to prevent unauthorized attestations and revocations, for the implementations that requires them.
 
 ### Composability Security
 
@@ -400,6 +283,7 @@ When implementing composite attestations:
 - Implement circuit breakers for recursive verification depth
 - Consider gas limits when chaining multiple verifications
 - Validate attestation IDs exist before making external calls
+- Sanitize, or implement a whitelist of the external contract addresses to prevent potential attacks.
 
 ### Privacy Leakage
 
@@ -410,7 +294,3 @@ When implementing privacy-preserving attestations:
 - Consider metadata leakage through transaction patterns
 
 Note: Traditional concerns about timing attacks and side channels through execution timing are not applicable in blockchain environments where all execution is deterministic and publicly verifiable.
-
-## Copyright
-
-Copyright and related rights waived via [CC0](https://creativecommons.org/publicdomain/zero/1.0/).

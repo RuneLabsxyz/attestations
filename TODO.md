@@ -1,0 +1,8 @@
+- Move around the transition information, it's currently too hidden
+- Justify the usage of lots of contracts (cheap to deploy, and the infra makes it ready)
+- Justify the no signature support, as you have the execute_from_outside snips, that allows to authenticate the issuer while re-using the existing infra.
+- Remove the revocation info from the base information.
+- Justify the fact that starknet now has the multicall tx support, so even with permissionned execution, you can still create the final attestation in a single transaction still.
+- Remove the implementation guidelines for now, as they are not relevant for now, and loads the size of the spec.
+- Go into more detail about ZK proofs, and how the standard supports that system correctly.
+- Blast-proof the system.
